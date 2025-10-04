@@ -4,9 +4,7 @@
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "next build --turbopack",
-    "start": "next start"
+    "start": "node server.js"
   },
   "dependencies": {
     "express": "^4.19.2",
