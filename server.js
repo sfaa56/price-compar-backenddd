@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config(); // 👈 أول حاجة تتحط
+
 import express from "express";
 import compareRoute from "./routes/compare.js";
 

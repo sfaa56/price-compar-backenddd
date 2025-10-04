@@ -1,202 +1,154 @@
 import express from "express";
-import { chromium } from "playwright-extra";
-import stealth from "puppeteer-extra-plugin-stealth";
+import * as cheerio from "cheerio";
 
-chromium.use(stealth());
 const router = express.Router();
 
-router.post("/", async (req, res) => {
-  const { query } = req.body;
+const SCRAPERAPI_KEY = "9beee395438251e0b089bfc3c2a749d7"
 
-  if (!query || query.trim().length === 0) {
-    return res.status(400).json({ error: "query requird" });
+if (!SCRAPERAPI_KEY) {
+  console.warn("⚠️ SCRAPERAPI_KEY not set — set process.env.SCRAPERAPI_KEY");
+}
+
+async function fetchViaScraperApi(targetUrl) {
+  const encoded = encodeURIComponent(targetUrl);
+  // render=true => ScraperAPI will render JS (useful for JS-heavy sites)
+  const apiUrl = `https://api.scraperapi.com?api_key=${encodeURIComponent(SCRAPERAPI_KEY)}&render=true&url=${encoded}`;
+  console.log("🔎 Fetching via ScraperAPI:", apiUrl);
+  const res = await fetch(apiUrl, { timeout: 120000 });
+  if (!res.ok) {
+    const txt = await res.text().catch(()=>"");
+    throw new Error(`ScraperAPI returned ${res.status} ${res.statusText}. Body length: ${txt.length}`);
   }
+  const html = await res.text();
+  return html;
+}
 
-  const results = [];
-
-  async function scrapeAmazon() {
-    try {
-      const browser = await chromium.launch({ headless: true });
-      const page = await browser.newPage();
-      await page.goto(`https://www.amazon.eg/s?k=${encodeURIComponent(query)}`, {
-        waitUntil: "domcontentloaded",
-        timeout: 60000,
-      });
-      await page.waitForSelector("div.s-main-slot div[data-component-type='s-search-result']", { timeout: 15000 });
-      const card = (await page.$$("div.s-main-slot div[data-component-type='s-search-result']"))[0];
-      const title = await card.$eval("h2 span", el => el.innerText).catch(() => null);
-      const price = await card.$eval(".a-price .a-price-whole", el => el.innerText).catch(() => null);
-      await browser.close();
-    console.log("hiiiii")
-      return { site: "amazon", title, price };
-    } catch (err) {
-      return { site: "amazon", error: err.message };
-    }
-  }
-
-  async function scrapeJumia() {
-    try {
-      const browser = await chromium.launch({ headless: true });
-      const page = await browser.newPage();
-      await page.goto(`https://www.jumia.com.eg/catalog/?q=${encodeURIComponent(query)}`, { timeout: 60000 });
-      await page.waitForSelector("article.prd h3.name", { timeout: 15000 });
-      const card = await page.locator("article.prd").first();
-      const title = await card.locator("h3.name").innerText().catch(() => null);
-      const price = await card.locator(".prc").innerText().catch(() => null);
-      await browser.close();
-      return { site: "jumia", title, price };
-    } catch (err) {
-      return { site: "jumia", error: err.message };
-    }
-  }
-
-async function scrapeNoon() {
-  const browser = await chromium.launch({
-    headless: true,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-blink-features=AutomationControlled",
-    ],
-  });
-
-  const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  });
-
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, "webdriver", { get: () => false });
-  });
-
-  const page = await context.newPage();
-  const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(
-    query
-  )}`;
-
+async function scrapeAmazon(query) {
+  // keep your previous implementation or fetch via ScraperAPI similarly
   try {
-    console.log("🟢 Opening:", url);
-    await page.goto(url, { waitUntil: "networkidle", timeout: 120000 });
+    const url = `https://www.amazon.eg/s?k=${encodeURIComponent(query)}`;
+    const html = await fetchViaScraperApi(url);
 
-    const content = await page.content();
-    console.log("✅ Page loaded. HTML length:", content.length);
+    const $ = cheerio.load(html);
+    const card = $("div.s-main-slot div[data-component-type='s-search-result']").first();
 
-    // Try multiple possible selectors (fallback)
+    const title = card.find("h2 span").text().trim() || null;
+    // price assembling attempt
+    const priceWhole = card.find(".a-price .a-price-whole").first().text().trim() || null;
+    const priceFraction = card.find(".a-price .a-price-fraction").first().text().trim() || "";
+    const priceSymbol = card.find(".a-price .a-price-symbol").first().text().trim() || "";
+    const price = priceWhole ? `${priceSymbol}${priceWhole}${priceFraction ? "."+priceFraction : ""}` : null;
+
+    return { site: "amazon", title, price };
+  } catch (err) {
+    return { site: "amazon", error: err.message || String(err) };
+  }
+}
+
+async function scrapeJumia(query) {
+  try {
+    const url = `https://www.jumia.com.eg/catalog/?q=${encodeURIComponent(query)}`;
+    const html = await fetchViaScraperApi(url);
+    const $ = cheerio.load(html);
+
+    const card = $("article.prd").first();
+    const title = card.find("h3.name").text().trim() || null;
+    const price = card.find(".prc").text().trim() || null;
+
+    return { site: "jumia", title, price };
+  } catch (err) {
+    return { site: "jumia", error: err.message || String(err) };
+  }
+}
+
+async function scrapeNoon(query) {
+  try {
+    if (!SCRAPERAPI_KEY) {
+      return { site: "noon", error: "SCRAPERAPI_KEY not configured on server" };
+    }
+
+    const targetUrl = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(query)}`;
+    const html = await fetchViaScraperApi(targetUrl);
+    console.log("✅ ScraperAPI returned HTML length:", html.length);
+
+    const $ = cheerio.load(html);
+
+    // Try multiple selectors (same list we used before)
     const selectors = [
       "div.ProductDetailsSection_wrapper__yLBrw",
       "div.productContainer",
       "div.productGrid",
       "div.gridView",
       "li.product",
+      "div[data-qa='plp-product-box']",
+      ".productCard",
+      ".productListItem"
     ];
 
-    let productCard = null;
+    let foundEl = null;
     let usedSelector = null;
-
-    for (const selector of selectors) {
-      const el = await page.$(selector);
-      if (el) {
-        usedSelector = selector;
-        const cards = await page.$$(selector);
-        if (cards && cards.length > 0) {
-          productCard = cards[0];
-          break;
-        }
+    for (const sel of selectors) {
+      const el = $(sel).first();
+      if (el && el.length) {
+        foundEl = el;
+        usedSelector = sel;
+        break;
       }
     }
 
-    if (!productCard) {
-      // no product found — take screenshot + return debug info
-      const tmpPath = "/tmp/noon-debug.png";
-      await page.screenshot({ path: tmpPath, fullPage: true }).catch(() => {});
-      const buffer = await page.screenshot({ fullPage: true }).catch(() => null);
-
-      // convert to base64 if buffer available
-      let b64 = null;
-      if (buffer) {
-        b64 = buffer.toString("base64");
-        // print small prefix in logs so you can quickly spot it
-        console.log("📸 Screenshot base64 prefix:", b64.slice(0, 200));
-      } else {
-        console.log("⚠️ Screenshot buffer not available.");
-      }
-
-      await browser.close();
-
+    if (!foundEl) {
+      // fallback: try to extract page title / h1
+      const fallbackTitle = $("title").text().trim() || $("h1").first().text().trim() || null;
       return {
         site: "noon",
-        error:
-          "No product card found on Noon page (likely blocked or different markup).",
-        debug: {
-          htmlLength: content.length,
-          usedSelector: null,
-          screenshotPath: tmpPath,
-          screenshotBase64: b64, // may be large
-        },
+        title: fallbackTitle,
+        price: null,
+        note: "No product card selector found — markup may differ or ScraperAPI returned challenge page.",
       };
     }
 
-    // Extract title + price with fallbacks
-    const title =
-      (await productCard
-        .$eval("h2", (el) => el.textContent.trim())
-        .catch(() => null)) ||
-      (await productCard
-        .$eval("h3", (el) => el.textContent.trim())
-        .catch(() => null)) ||
-      null;
-
-    const price =
-      (await productCard
-        .$eval("div[data-qa='plp-product-box-price']", (el) =>
-          el.textContent.trim()
-        )
-        .catch(() => null)) ||
-      (await productCard
-        .$eval("strong", (el) => el.textContent.trim())
-        .catch(() => null)) ||
-      null;
-
-    await browser.close();
-    return { site: "noon", title, price, debug: { usedSelector } };
-  } catch (err) {
-    // on unexpected error: capture screenshot + html
-    let b64 = null;
-    try {
-      const buffer = await page.screenshot({ fullPage: true }).catch(() => null);
-      if (buffer) b64 = buffer.toString("base64");
-    } catch (e) {
-      console.log("⚠️ failed to capture screenshot:", e.message);
+    // Within the found element attempt to extract title & price using a few patterns
+    const titleCandidates = [
+      "h2", ".productTitle", ".name", ".product-name", ".title"
+    ];
+    let title = null;
+    for (const tSel of titleCandidates) {
+      const text = foundEl.find(tSel).first().text().trim();
+      if (text) { title = text; break; }
     }
 
-    const pageHtml = await page.content().catch(() => null);
-    await browser.close();
+    const priceCandidates = [
+      "[data-qa='plp-product-box-price']", ".price", ".product-price", ".prc"
+    ];
+    let price = null;
+    for (const pSel of priceCandidates) {
+      const pText = foundEl.find(pSel).first().text().trim();
+      if (pText) { price = pText; break; }
+    }
 
-    return {
-      site: "noon",
-      error: err.message,
-      debug: {
-        htmlLength: pageHtml ? pageHtml.length : null,
-        screenshotBase64: b64,
-      },
-    };
-  } finally {
-    // ensure browser closed in case of unexpected path
-    try { await browser.close(); } catch (e) {}
+    return { site: "noon", title, price, usedSelector };
+  } catch (err) {
+    return { site: "noon", error: err.message || String(err) };
   }
 }
 
+router.post("/", async (req, res) => {
+  try {
+    const { query } = req.body;
+    if (!query || !query.trim()) return res.status(400).json({ error: "query required" });
 
+    // run in parallel
+    const [amazon, jumia, noon] = await Promise.all([
+      scrapeAmazon(query),
+      scrapeJumia(query),
+      scrapeNoon(query),
+    ]);
 
-
-  const [amazon, jumia, noon] = await Promise.all([
-    scrapeAmazon(),
-    scrapeJumia(),
-    scrapeNoon(),
-  ]);
-
-  results.push(amazon, jumia, noon);
-  return res.status(200).json({ scraped: results });
+    return res.json({ scraped: [amazon, jumia, noon] });
+  } catch (err) {
+    console.error("Router error:", err);
+    return res.status(500).json({ error: String(err) });
+  }
 });
 
 export default router;
