@@ -70,18 +70,18 @@ async function scrapeNoon() {
   });
 
   const page = await context.newPage();
+  const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(
+    query
+  )}`;
 
   try {
-    const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(
-      query
-    )}`;
     console.log("🟢 Opening:", url);
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
+    await page.goto(url, { waitUntil: "networkidle", timeout: 120000 });
 
     const content = await page.content();
     console.log("✅ Page loaded. HTML length:", content.length);
 
-    // Try multiple possible selectors for product wrappers
+    // Try multiple possible selectors (fallback)
     const selectors = [
       "div.ProductDetailsSection_wrapper__yLBrw",
       "div.productContainer",
@@ -94,36 +94,57 @@ async function scrapeNoon() {
     let usedSelector = null;
 
     for (const selector of selectors) {
-      const exists = await page.$(selector);
-      if (exists) {
-        console.log("✅ Found matching selector:", selector);
+      const el = await page.$(selector);
+      if (el) {
         usedSelector = selector;
         const cards = await page.$$(selector);
         if (cards && cards.length > 0) {
           productCard = cards[0];
           break;
         }
-      } else {
-        console.log("❌ Selector not found:", selector);
       }
     }
 
     if (!productCard) {
-      throw new Error(
-        `No product card found on Noon page (selectors tried: ${selectors.join(
-          ", "
-        )})`
-      );
+      // no product found — take screenshot + return debug info
+      const tmpPath = "/tmp/noon-debug.png";
+      await page.screenshot({ path: tmpPath, fullPage: true }).catch(() => {});
+      const buffer = await page.screenshot({ fullPage: true }).catch(() => null);
+
+      // convert to base64 if buffer available
+      let b64 = null;
+      if (buffer) {
+        b64 = buffer.toString("base64");
+        // print small prefix in logs so you can quickly spot it
+        console.log("📸 Screenshot base64 prefix:", b64.slice(0, 200));
+      } else {
+        console.log("⚠️ Screenshot buffer not available.");
+      }
+
+      await browser.close();
+
+      return {
+        site: "noon",
+        error:
+          "No product card found on Noon page (likely blocked or different markup).",
+        debug: {
+          htmlLength: content.length,
+          usedSelector: null,
+          screenshotPath: tmpPath,
+          screenshotBase64: b64, // may be large
+        },
+      };
     }
 
-    // Extract title + price with fallback
+    // Extract title + price with fallbacks
     const title =
       (await productCard
         .$eval("h2", (el) => el.textContent.trim())
         .catch(() => null)) ||
       (await productCard
-        .$eval("div.productTitle", (el) => el.textContent.trim())
-        .catch(() => null));
+        .$eval("h3", (el) => el.textContent.trim())
+        .catch(() => null)) ||
+      null;
 
     const price =
       (await productCard
@@ -132,21 +153,39 @@ async function scrapeNoon() {
         )
         .catch(() => null)) ||
       (await productCard
-        .$eval("span.price", (el) => el.textContent.trim())
-        .catch(() => null));
+        .$eval("strong", (el) => el.textContent.trim())
+        .catch(() => null)) ||
+      null;
 
-    console.log("🟢 Used selector:", usedSelector);
-    console.log("🟢 Extracted title:", title);
-    console.log("🟢 Extracted price:", price);
-
-    return { site: "noon", title, price };
-  } catch (err) {
-    console.error("❌ Noon scraping error:", err);
-    return { site: "noon", error: err.message };
-  } finally {
     await browser.close();
+    return { site: "noon", title, price, debug: { usedSelector } };
+  } catch (err) {
+    // on unexpected error: capture screenshot + html
+    let b64 = null;
+    try {
+      const buffer = await page.screenshot({ fullPage: true }).catch(() => null);
+      if (buffer) b64 = buffer.toString("base64");
+    } catch (e) {
+      console.log("⚠️ failed to capture screenshot:", e.message);
+    }
+
+    const pageHtml = await page.content().catch(() => null);
+    await browser.close();
+
+    return {
+      site: "noon",
+      error: err.message,
+      debug: {
+        htmlLength: pageHtml ? pageHtml.length : null,
+        screenshotBase64: b64,
+      },
+    };
+  } finally {
+    // ensure browser closed in case of unexpected path
+    try { await browser.close(); } catch (e) {}
   }
 }
+
 
 
 
