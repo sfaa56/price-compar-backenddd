@@ -60,12 +60,14 @@ router.post("/", async (req, res) => {
     "--disable-blink-features=AutomationControlled",
   ],
 });
-      const page = await browser.newPage();
 
-          // 🧩 أضف الـ user agent هنا
-    await page.setUserAgent(
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    ); 
+const context = await browser.newContext({
+  userAgent:
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+})
+     const page = await context.newPage();
+
+
 
       const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(query)}`;
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
