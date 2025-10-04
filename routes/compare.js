@@ -27,6 +27,7 @@ router.post("/", async (req, res) => {
       const title = await card.$eval("h2 span", el => el.innerText).catch(() => null);
       const price = await card.$eval(".a-price .a-price-whole", el => el.innerText).catch(() => null);
       await browser.close();
+    console.log("hiiiii")
       return { site: "amazon", title, price };
     } catch (err) {
       return { site: "amazon", error: err.message };
@@ -51,8 +52,21 @@ router.post("/", async (req, res) => {
 
   async function scrapeNoon() {
     try {
-      const browser = await chromium.launch({ headless: true });
+      const browser = await chromium.launch({
+  headless: true,
+  args: [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-blink-features=AutomationControlled",
+  ],
+});
       const page = await browser.newPage();
+
+          // 🧩 أضف الـ user agent هنا
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    ); 
+
       const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(query)}`;
       await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
       await page.waitForSelector('div.ProductDetailsSection_wrapper__yLBrw', { timeout: 60000 });
