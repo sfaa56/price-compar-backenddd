@@ -50,42 +50,105 @@ router.post("/", async (req, res) => {
     }
   }
 
-  async function scrapeNoon() {
-    try {
-      const browser = await chromium.launch({
-  headless: true,
-  args: [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-blink-features=AutomationControlled",
-  ],
-});
+async function scrapeNoon() {
+  const browser = await chromium.launch({
+    headless: true,
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-blink-features=AutomationControlled",
+    ],
+  });
 
-const context = await browser.newContext({
-  userAgent:
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-})
+  const context = await browser.newContext({
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  });
 
-await context.addInitScript(() => {
-  Object.defineProperty(navigator, 'webdriver', { get: () => false });
-});
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => false });
+  });
 
-     const page = await context.newPage();
+  const page = await context.newPage();
 
+  try {
+    const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(
+      query
+    )}`;
+    console.log("🟢 Opening:", url);
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
 
+    const content = await page.content();
+    console.log("✅ Page loaded. HTML length:", content.length);
 
-      const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(query)}`;
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
-      await page.waitForSelector('div.ProductDetailsSection_wrapper__yLBrw', { timeout: 60000 });
-      const card = (await page.$$("div.ProductDetailsSection_wrapper__yLBrw"))[0];
-      const title = await card.$eval("h2", el => el.textContent.trim()).catch(() => null);
-      const price = await card.$eval("div[data-qa='plp-product-box-price']", el => el.textContent.trim()).catch(() => null);
-      await browser.close();
-      return { site: "noon", title, price };
-    } catch (err) {
-      return { site: "noon", error: err.message };
+    // Try multiple possible selectors for product wrappers
+    const selectors = [
+      "div.ProductDetailsSection_wrapper__yLBrw",
+      "div.productContainer",
+      "div.productGrid",
+      "div.gridView",
+      "li.product",
+    ];
+
+    let productCard = null;
+    let usedSelector = null;
+
+    for (const selector of selectors) {
+      const exists = await page.$(selector);
+      if (exists) {
+        console.log("✅ Found matching selector:", selector);
+        usedSelector = selector;
+        const cards = await page.$$(selector);
+        if (cards && cards.length > 0) {
+          productCard = cards[0];
+          break;
+        }
+      } else {
+        console.log("❌ Selector not found:", selector);
+      }
     }
+
+    if (!productCard) {
+      throw new Error(
+        `No product card found on Noon page (selectors tried: ${selectors.join(
+          ", "
+        )})`
+      );
+    }
+
+    // Extract title + price with fallback
+    const title =
+      (await productCard
+        .$eval("h2", (el) => el.textContent.trim())
+        .catch(() => null)) ||
+      (await productCard
+        .$eval("div.productTitle", (el) => el.textContent.trim())
+        .catch(() => null));
+
+    const price =
+      (await productCard
+        .$eval("div[data-qa='plp-product-box-price']", (el) =>
+          el.textContent.trim()
+        )
+        .catch(() => null)) ||
+      (await productCard
+        .$eval("span.price", (el) => el.textContent.trim())
+        .catch(() => null));
+
+    console.log("🟢 Used selector:", usedSelector);
+    console.log("🟢 Extracted title:", title);
+    console.log("🟢 Extracted price:", price);
+
+    return { site: "noon", title, price };
+  } catch (err) {
+    console.error("❌ Noon scraping error:", err);
+    return { site: "noon", error: err.message };
+  } finally {
+    await browser.close();
   }
+}
+
+
 
   const [amazon, jumia, noon] = await Promise.all([
     scrapeAmazon(),
