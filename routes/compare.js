@@ -80,6 +80,7 @@ async function scrapeNoon() {
 
     // ⏱️ Debug log to see if content loaded
     const content = await page.content();
+    console.log("content",await page.content());
     console.log("✅ Page loaded. Length of HTML:", content.length);
 
     // 🧩 Try multiple selectors for debugging
@@ -111,6 +112,7 @@ async function scrapeNoon() {
     const title = await card
       .$eval("h2", (el) => el.textContent.trim())
       .catch(() => null);
+
     const price = await card
       .$eval("div[data-qa='plp-product-box-price']", (el) =>
         el.textContent.trim()
