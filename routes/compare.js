@@ -50,82 +50,71 @@ router.post("/", async (req, res) => {
     }
   }
 
-async function scrapeNoon() {
+  
+ async function scrapeNoon() {
   const browser = await chromium.launch({
     headless: true,
     args: [
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-blink-features=AutomationControlled",
+      "--disable-dev-shm-usage",
+      "--disable-extensions",
+      "--start-maximized",
+      "--no-first-run",
+      "--no-default-browser-check",
     ],
   });
 
   const context = await browser.newContext({
     userAgent:
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    locale: "en-US,en;q=0.9",
+    viewport: { width: 1366, height: 768 },
   });
 
   await context.addInitScript(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => false });
+    window.chrome = { runtime: {} };
+    Object.defineProperty(navigator, "plugins", {
+      get: () => [1, 2, 3],
+    });
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["en-US", "en"],
+    });
   });
 
   const page = await context.newPage();
+  const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(
+    query
+  )}`;
 
   try {
-    const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(
-      query
-    )}`;
     console.log("🟢 Opening:", url);
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 120000 });
+    await page.goto(url, { waitUntil: "networkidle", timeout: 120000 });
 
-    // ⏱️ Debug log to see if content loaded
-    const content = await page.content();
-    console.log("content",await page.content());
-    console.log("✅ Page loaded. Length of HTML:", content.length);
-
-    // 🧩 Try multiple selectors for debugging
-    const selectors = [
-      "div.ProductDetailsSection_wrapper__yLBrw",
-      "div.productContainer",
-      "div.productList",
-    ];
-
-    let foundSelector = null;
-    for (const selector of selectors) {
-      const exists = await page.$(selector);
-      if (exists) {
-        foundSelector = selector;
-        console.log("✅ Found selector:", selector);
-        break;
-      } else {
-        console.log("❌ Not found:", selector);
-      }
+    // تأكد إن الصفحة فعلاً اتحملت
+    const html = await page.content();
+    if (html.includes("Access Denied")) {
+      throw new Error("❌ Access Denied detected — Noon blocked this request");
     }
 
-    if (!foundSelector) {
-      throw new Error("No product wrapper selector found on Noon page");
-    }
+    await page.waitForSelector("h2[data-qa='product-title']", { timeout: 15000 });
 
-    const card = (await page.$$(foundSelector))[0];
-    if (!card) throw new Error("No product card found");
-
+    const card = await page.locator("div[data-qa='product-container']").first();
     const title = await card
-      .$eval("h2", (el) => el.textContent.trim())
+      .locator("h2[data-qa='product-title']")
+      .innerText()
       .catch(() => null);
-
     const price = await card
-      .$eval("div[data-qa='plp-product-box-price']", (el) =>
-        el.textContent.trim()
-      )
+      .locator("div[data-qa='price-box']")
+      .innerText()
       .catch(() => null);
 
-    console.log("🟢 Extracted title:", title);
-    console.log("🟢 Extracted price:", price);
-
-    await browser.close();
+    console.log("✅ Extracted:", { title, price });
     return { site: "noon", title, price };
   } catch (err) {
-    console.error("❌ Noon scraping error:", err);
+    console.error("❌ Noon scraping error:", err.message);
     return { site: "noon", error: err.message };
   } finally {
     await browser.close();

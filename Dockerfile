@@ -1,16 +1,26 @@
-# استخدم Node الرسمي (يدعم Playwright)
- FROM mcr.microsoft.com/playwright:v1.48.2-jammy 
+FROM node:20-slim
 
- # تعيين مجلد العمل 
- WORKDIR /app 
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    unzip \
+    fonts-liberation \
+    libatk-bridge2.0-0 \
+    libnss3 \
+    libxkbcommon0 \
+    libxcomposite1 \
+    libxrandr2 \
+    libxdamage1 \
+    libgbm1 \
+    libgtk-3-0 \
+    libasound2 \
+    && rm -rf /var/lib/apt/lists/*
 
-# نسخ ملفات المشروع  
-COPY package*.json ./
-# تثبيت التبعيات 
-RUN npm install
-# نسخ باقي الملفات 
-COPY . . 
-# تعيين المنفذ (Railway يستخدمه تلقائيًا)
-EXPOSE 4000 
-# أمر التشغيل 
-CMD ["npm", "start"]
+# Install Playwright dependencies
+RUN npx playwright install --with-deps chromium
+
+WORKDIR /app
+COPY . .
+
+EXPOSE 4000
+CMD ["node", "server.js"]
