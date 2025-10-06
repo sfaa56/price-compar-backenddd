@@ -19,8 +19,7 @@ RUN apt-get update && apt-get install -y xvfb
 # ✅ تعيين متغير البيئة لمحاكاة الشاشة
 ENV DISPLAY=:99
 
-# ✅ تعيين المنفذ (Railway يستخدمه تلقائيًا)
-EXPOSE 4000
+
 
 # ✅ تشغيل السيرفر عبر Xvfb لتفعيل الـ headful browser
-CMD ["xvfb-run", "-a", "npm", "start"]
+CMD ["xvfb-run", "--server-num=99", "--auto-servernum", "npm", "start"]
