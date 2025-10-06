@@ -9,192 +9,248 @@ router.post("/", async (req, res) => {
   const { query } = req.body;
 
   if (!query || query.trim().length === 0) {
-    return res.status(400).json({ error: "query requird" });
+    return res.status(400).json({ error: "query required" });
   }
-
-  const results = [];
-
-  // async function scrapeAmazon() {
-  //   try {
-  //     const browser = await chromium.launch({ headless: true });
-  //     const page = await browser.newPage();
-  //     await page.goto(
-  //       `https://www.amazon.eg/s?k=${encodeURIComponent(query)}`,
-  //       {
-  //         waitUntil: "domcontentloaded",
-  //         timeout: 60000,
-  //       }
-  //     );
-  //     await page.waitForSelector(
-  //       "div.s-main-slot div[data-component-type='s-search-result']",
-  //       { timeout: 15000 }
-  //     );
-  //     const card = (
-  //       await page.$$(
-  //         "div.s-main-slot div[data-component-type='s-search-result']"
-  //       )
-  //     )[0];
-  //     const title = await card
-  //       .$eval("h2 span", (el) => el.innerText)
-  //       .catch(() => null);
-  //     const price = await card
-  //       .$eval(".a-price .a-price-whole", (el) => el.innerText)
-  //       .catch(() => null);
-  //     await browser.close();
-  //     console.log("hiiiii");
-  //     return { site: "amazon", title, price };
-  //   } catch (err) {
-  //     return { site: "amazon", error: err.message };
-  //   }
-  // }
-
-  // async function scrapeJumia() {
-  //   try {
-  //     const browser = await chromium.launch({ headless: true });
-  //     const page = await browser.newPage();
-  //     await page.goto(
-  //       `https://www.jumia.com.eg/catalog/?q=${encodeURIComponent(query)}`,
-  //       { timeout: 60000 }
-  //     );
-  //     await page.waitForSelector("article.prd h3.name", { timeout: 15000 });
-  //     const card = await page.locator("article.prd").first();
-  //     const title = await card
-  //       .locator("h3.name")
-  //       .innerText()
-  //       .catch(() => null);
-  //     const price = await card
-  //       .locator(".prc")
-  //       .innerText()
-  //       .catch(() => null);
-  //     await browser.close();
-  //     return { site: "jumia", title, price };
-  //   } catch (err) {
-  //     return { site: "jumia", error: err.message };
-  //   }
-  // }
 
   async function scrapeNoon() {
-    const browser = await chromium.launch({
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-gpu",
-        "--disable-dev-shm-usage",
-        "--disable-webgl",
-        "--single-process",
-        "--hide-scrollbars",
-        "--mute-audio",
-      ],
-    });
-
-  const context = await browser.newContext({
-    // ... (context config)
-    userAgent:
-      "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
-    viewport: { width: 412, height: 732 },
-    deviceScaleFactor: 2.625,
-  });
-
-  // 👇 FIX: Use context.addInitScript() instead of evaluateOnNewDocument()
-  await context.addInitScript(() => {
-    // 1. Spoof WebGL/GPU (This is the critical fingerprint fix)
-    Object.defineProperty(navigator.gpu, 'getPreferredCanvasFormat', {
-        value: () => 'rgba8unorm',
-    });
-    
-    // 2. Spoof Canvas API (to defeat pixel-based detection)
-    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
-    HTMLCanvasElement.prototype.toDataURL = function (...args) {
-        const ctx = this.getContext('2d');
-        if (ctx) {
-            ctx.fillStyle = '#1a1a1a'; // Draw a single pixel
-            ctx.fillRect(0, 0, 1, 1);
-        }
-        return originalToDataURL.apply(this, args);
-    };
-
-    // 3. Delete the 'webdriver' property (ensuring stealth plugin hasn't missed it)
-    if (Object.getOwnPropertyDescriptor(navigator, "webdriver")) {
-        delete Object.getOwnPropertyDescriptor(navigator, "webdriver");
-    }
-  });
-  // **************************************************************************
-
- const page = await context.newPage();
-
-    const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(
-      query
-    )}`;
-
+    let browser;
     try {
-      console.log("🟢 Opening:", url);
-
-      // Wait for the network to be mostly idle
-      await page.goto(url, { waitUntil: "domcontentloaded" });
-
-      // Introduce human-like delay
-      const delay = Math.floor(Math.random() * 3000) + 2000; // 2s to 5s
-      await page.waitForTimeout(delay);
-
-      // Introduce a scroll action
-      await page.evaluate(() => {
-        window.scrollBy(0, 300);
+      browser = await chromium.launch({
+        headless: true,
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-blink-features=AutomationControlled",
+          "--disable-features=VizDisplayCompositor",
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-renderer-backgrounding",
+          "--disable-web-security",
+          "--disable-features=TranslateUI",
+          "--disable-ipc-flooding-protection",
+          "--no-first-run",
+          "--no-default-browser-check",
+          "--disable-default-apps",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--no-zygote",
+          "--single-process",
+          "--hide-scrollbars",
+          "--mute-audio",
+          "--window-size=412,732"
+        ],
       });
-      await page.waitForTimeout(500);
 
-      const html = await page.content();
-      if (html.includes("Access Denied")) {
-        throw new Error(
-          "❌ Access Denied detected — Noon blocked this request"
+      const context = await browser.newContext({
+        viewport: { width: 412, height: 732 },
+        userAgent: getRandomMobileUserAgent(),
+        locale: 'en-US',
+        timezoneId: 'Africa/Cairo',
+        geolocation: { latitude: 30.0444, longitude: 31.2357 }, // Cairo coordinates
+        permissions: ['geolocation'],
+        extraHTTPHeaders: {
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Cache-Control': 'max-age=0',
+        },
+      });
+
+      // Enhanced fingerprint spoofing
+      await context.addInitScript(() => {
+        // Override webdriver property
+        Object.defineProperty(navigator, 'webdriver', {
+          get: () => false,
+        });
+
+        // Override languages
+        Object.defineProperty(navigator, 'languages', {
+          get: () => ['en-US', 'en'],
+        });
+
+        // Override plugins
+        Object.defineProperty(navigator, 'plugins', {
+          get: () => [1, 2, 3, 4, 5],
+        });
+
+        // Mock chrome runtime
+        window.chrome = {
+          runtime: {},
+          loadTimes: () => {},
+          csi: () => {},
+          app: {}
+        };
+
+        // Spoof WebGL
+        const originalGetParameter = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(parameter) {
+          if (parameter === 37445) return 'Intel Inc.';
+          if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+          return originalGetParameter.call(this, parameter);
+        };
+
+        // Spoof permissions
+        const originalQuery = navigator.permissions.query;
+        navigator.permissions.query = (parameters) => (
+          parameters.name === 'notifications' ?
+            Promise.resolve({ state: Notification.permission }) :
+            originalQuery(parameters)
         );
+      });
+
+      const page = await context.newPage();
+
+      // Block unnecessary resources to speed up loading
+      await page.route('**/*', (route) => {
+        const resourceType = route.request().resourceType();
+        if (['image', 'font', 'media'].includes(resourceType)) {
+          route.abort();
+        } else {
+          route.continue();
+        }
+      });
+
+      const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(query)}`;
+
+      console.log("🟢 Opening Noon:", url);
+
+      // Add random delays between actions
+      await page.goto(url, { 
+        waitUntil: 'networkidle',
+        timeout: 45000 
+      });
+
+      // Random human-like delays
+      await page.waitForTimeout(getRandomDelay(2000, 5000));
+
+      // Simulate human scrolling
+      await page.evaluate(() => {
+        window.scrollBy(0, 200 + Math.random() * 300);
+      });
+      await page.waitForTimeout(1000);
+      
+      await page.evaluate(() => {
+        window.scrollBy(0, 300 + Math.random() * 400);
+      });
+
+      // Check for blocking
+      const content = await page.content();
+      if (content.includes("Access Denied") || 
+          content.includes("blocked") || 
+          content.includes("bot") ||
+          await page.$('div#challenge-form')) {
+        throw new Error("❌ Access Denied - Noon blocked the request");
       }
 
-      const selectors = [
+      // Wait for products to load with multiple selector options
+      const productSelectors = [
+        "div[data-qa='product-container']",
+        ".productContainer",
+        ".sc-9e6b8f9c-0",
         "div.ProductDetailsSection_wrapper__yLBrw",
-        "div.productContainer",
-        "div.productList",
+        "div.productList > div"
       ];
 
-      let foundSelector = null;
-      for (const selector of selectors) {
-        if (await page.$(selector)) {
-          foundSelector = selector;
-          console.log("✅ Found selector:", selector);
-          break;
-        } else {
-          console.log("❌ Not found:", selector);
+      let productElement = null;
+      for (const selector of productSelectors) {
+        try {
+          await page.waitForSelector(selector, { timeout: 10000 });
+          productElement = await page.$(selector);
+          if (productElement) {
+            console.log("✅ Found products with selector:", selector);
+            break;
+          }
+        } catch (e) {
+          console.log("❌ Selector not found:", selector);
         }
       }
 
-      if (!foundSelector) throw new Error("❌ No product container found");
+      if (!productElement) {
+        throw new Error("❌ No product elements found on page");
+      }
 
-      const card = (await page.$$(foundSelector))[0];
-      if (!card) throw new Error("❌ No product card found");
+      // Extract product data with multiple fallback selectors
+      const productData = await page.evaluate(() => {
+        // Try multiple title selectors
+        const titleSelectors = [
+          "h2",
+          "[data-qa='product-name']",
+          ".sc-77d6c0b0-0",
+          ".name"
+        ];
+        
+        // Try multiple price selectors  
+        const priceSelectors = [
+          "[data-qa='product-price']",
+          ".sellingPrice",
+          ".sc-77d6c0b0-1",
+          ".amount",
+          ".price"
+        ];
 
-      const title = await card.$eval(
-        "h2",
-        (el) => el.textContent?.trim() ?? "N/A"
-      );
-      const price = await card.$eval(
-        "div[data-qa='plp-product-box-price']",
-        (el) => el.textContent?.trim() ?? "N/A"
-      );
+        let title = "N/A";
+        let price = "N/A";
 
-      console.log("✅ Extracted:", { title, price });
-      return { site: "noon", title, price };
+        for (const selector of titleSelectors) {
+          const element = document.querySelector(selector);
+          if (element && element.textContent?.trim()) {
+            title = element.textContent.trim();
+            break;
+          }
+        }
+
+        for (const selector of priceSelectors) {
+          const element = document.querySelector(selector);
+          if (element && element.textContent?.trim()) {
+            price = element.textContent.trim();
+            break;
+          }
+        }
+
+        return { title, price };
+      });
+
+      console.log("✅ Successfully scraped Noon:", productData);
+      return { site: "noon", ...productData };
+
     } catch (err) {
-      console.error("❌ Noon scraping error:", err.message);
+      console.error("❌ Noon scraping failed:", err.message);
       return { site: "noon", error: err.message };
     } finally {
-      await browser.close();
+      if (browser) {
+        await browser.close();
+      }
     }
   }
 
-  const [noon] = await Promise.all([scrapeNoon()]);
+  // Helper functions
+  function getRandomMobileUserAgent() {
+    const userAgents = [
+      "Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      "Mozilla/5.0 (Linux; Android 12; SM-S906N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+      "Mozilla/5.0 (iPhone14,6; U; CPU iPhone OS 15_4 like Mac OS X) AppleWebKit/602.1.50 (KHTML, like Gecko) Version/15.4 Mobile/19E5219a Safari/602.1"
+    ];
+    return userAgents[Math.floor(Math.random() * userAgents.length)];
+  }
 
-  results.push(noon);
-  return res.status(200).json({ scraped: results });
+  function getRandomDelay(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  try {
+    const noonResult = await scrapeNoon();
+    return res.status(200).json({ scraped: [noonResult] });
+  } catch (error) {
+    return res.status(500).json({ scraped: [{ site: "noon", error: error.message }] });
+  }
 });
 
 export default router;
