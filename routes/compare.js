@@ -73,98 +73,101 @@ router.post("/", async (req, res) => {
   //   }
   // }
 
-
- async function scrapeNoon() {
-  const browser = await chromium.launch({
-    headless: true,
-    slowMo: 50, // فقط أثناء التطوير
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-blink-features=AutomationControlled",
-      "--disable-dev-shm-usage",
-      "--disable-extensions",
-      "--start-maximized",
-      "--no-first-run",
-      "--no-default-browser-check",
-    ],
-  });
-
-  const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    locale: "en-US,en;q=0.9",
-    viewport: { width: 1366, height: 768 },
-  });
-
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, "webdriver", { get: () => false });
-    window.chrome = { runtime: {} };
-    Object.defineProperty(navigator, "plugins", { get: () => [1, 2, 3] });
-    Object.defineProperty(navigator, "languages", { get: () => ["en-US", "en"] });
-  });
-
-  const page = await context.newPage();
-  const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(query)}`;
-
-  try {
-    console.log("🟢 Opening:", url);
-
-    await page.setExtraHTTPHeaders({
-      "accept-language": "en-US,en;q=0.9",
-      "user-agent": `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${100 + Math.floor(Math.random() * 20)}.0.0.0 Safari/537.36`,
+  async function scrapeNoon() {
+    const browser = await chromium.launch({
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu",
+        "--disable-dev-shm-usage",
+        "--disable-webgl",
+        "--single-process",
+        "--hide-scrollbars",
+        "--mute-audio",
+      ],
     });
 
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 180000 });
-    await page.waitForTimeout(2000);
+    // Use a mobile context configuration
+    const context = await browser.newContext({
+      userAgent:
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
+      viewport: { width: 412, height: 732 },
+      deviceScaleFactor: 2.625,
+    });
 
-    const html = await page.content();
-    if (html.includes("Access Denied")) {
-      throw new Error("❌ Access Denied detected — Noon blocked this request");
-    }
+    const page = await context.newPage();
+    const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(
+      query
+    )}`;
 
-    const selectors = [
-      "div.ProductDetailsSection_wrapper__yLBrw",
-      "div.productContainer",
-      "div.productList",
-    ];
+    try {
+      console.log("🟢 Opening:", url);
 
-    let foundSelector = null;
-    for (const selector of selectors) {
-      if (await page.$(selector)) {
-        foundSelector = selector;
-        console.log("✅ Found selector:", selector);
-        break;
-      } else {
-        console.log("❌ Not found:", selector);
+      // Wait for the network to be mostly idle
+      await page.goto(url, { waitUntil: "networkidle" });
+
+      // Introduce human-like delay
+      const delay = Math.floor(Math.random() * 3000) + 2000; // 2s to 5s
+      await page.waitForTimeout(delay);
+
+      // Introduce a scroll action
+      await page.evaluate(() => {
+        window.scrollBy(0, 300);
+      });
+      await page.waitForTimeout(500);
+
+      const html = await page.content();
+      if (html.includes("Access Denied")) {
+        throw new Error(
+          "❌ Access Denied detected — Noon blocked this request"
+        );
       }
+
+      const selectors = [
+        "div.ProductDetailsSection_wrapper__yLBrw",
+        "div.productContainer",
+        "div.productList",
+      ];
+
+      let foundSelector = null;
+      for (const selector of selectors) {
+        if (await page.$(selector)) {
+          foundSelector = selector;
+          console.log("✅ Found selector:", selector);
+          break;
+        } else {
+          console.log("❌ Not found:", selector);
+        }
+      }
+
+      if (!foundSelector) throw new Error("❌ No product container found");
+
+      const card = (await page.$$(foundSelector))[0];
+      if (!card) throw new Error("❌ No product card found");
+
+      const title = await card.$eval(
+        "h2",
+        (el) => el.textContent?.trim() ?? "N/A"
+      );
+      const price = await card.$eval(
+        "div[data-qa='plp-product-box-price']",
+        (el) => el.textContent?.trim() ?? "N/A"
+      );
+
+      console.log("✅ Extracted:", { title, price });
+      return { site: "noon", title, price };
+    } catch (err) {
+      console.error("❌ Noon scraping error:", err.message);
+      return { site: "noon", error: err.message };
+    } finally {
+      await browser.close();
     }
-
-    if (!foundSelector) throw new Error("❌ No product container found");
-
-    const card = (await page.$$(foundSelector))[0];
-    if (!card) throw new Error("❌ No product card found");
-
-    const title = await card.$eval("h2", (el) => el.textContent?.trim() ?? "N/A");
-    const price = await card.$eval("div[data-qa='plp-product-box-price']", (el) => el.textContent?.trim() ?? "N/A");
-
-    console.log("✅ Extracted:", { title, price });
-    return { site: "noon", title, price };
-  } catch (err) {
-    console.error("❌ Noon scraping error:", err.message);
-    return { site: "noon", error: err.message };
-  } finally {
-    await browser.close();
   }
-}
 
+  const [noon] = await Promise.all([scrapeNoon()]);
 
-  const [noon] = await Promise.all([
-
-    scrapeNoon(),
-  ]);
-
-  results.push( noon);
+  results.push(noon);
   return res.status(200).json({ scraped: results });
 });
 
