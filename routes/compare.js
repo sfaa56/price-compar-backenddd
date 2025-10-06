@@ -14,69 +14,69 @@ router.post("/", async (req, res) => {
 
   const results = [];
 
-  async function scrapeAmazon() {
-    try {
-      const browser = await chromium.launch({ headless: true });
-      const page = await browser.newPage();
-      await page.goto(
-        `https://www.amazon.eg/s?k=${encodeURIComponent(query)}`,
-        {
-          waitUntil: "domcontentloaded",
-          timeout: 60000,
-        }
-      );
-      await page.waitForSelector(
-        "div.s-main-slot div[data-component-type='s-search-result']",
-        { timeout: 15000 }
-      );
-      const card = (
-        await page.$$(
-          "div.s-main-slot div[data-component-type='s-search-result']"
-        )
-      )[0];
-      const title = await card
-        .$eval("h2 span", (el) => el.innerText)
-        .catch(() => null);
-      const price = await card
-        .$eval(".a-price .a-price-whole", (el) => el.innerText)
-        .catch(() => null);
-      await browser.close();
-      console.log("hiiiii");
-      return { site: "amazon", title, price };
-    } catch (err) {
-      return { site: "amazon", error: err.message };
-    }
-  }
+  // async function scrapeAmazon() {
+  //   try {
+  //     const browser = await chromium.launch({ headless: true });
+  //     const page = await browser.newPage();
+  //     await page.goto(
+  //       `https://www.amazon.eg/s?k=${encodeURIComponent(query)}`,
+  //       {
+  //         waitUntil: "domcontentloaded",
+  //         timeout: 60000,
+  //       }
+  //     );
+  //     await page.waitForSelector(
+  //       "div.s-main-slot div[data-component-type='s-search-result']",
+  //       { timeout: 15000 }
+  //     );
+  //     const card = (
+  //       await page.$$(
+  //         "div.s-main-slot div[data-component-type='s-search-result']"
+  //       )
+  //     )[0];
+  //     const title = await card
+  //       .$eval("h2 span", (el) => el.innerText)
+  //       .catch(() => null);
+  //     const price = await card
+  //       .$eval(".a-price .a-price-whole", (el) => el.innerText)
+  //       .catch(() => null);
+  //     await browser.close();
+  //     console.log("hiiiii");
+  //     return { site: "amazon", title, price };
+  //   } catch (err) {
+  //     return { site: "amazon", error: err.message };
+  //   }
+  // }
 
-  async function scrapeJumia() {
-    try {
-      const browser = await chromium.launch({ headless: true });
-      const page = await browser.newPage();
-      await page.goto(
-        `https://www.jumia.com.eg/catalog/?q=${encodeURIComponent(query)}`,
-        { timeout: 60000 }
-      );
-      await page.waitForSelector("article.prd h3.name", { timeout: 15000 });
-      const card = await page.locator("article.prd").first();
-      const title = await card
-        .locator("h3.name")
-        .innerText()
-        .catch(() => null);
-      const price = await card
-        .locator(".prc")
-        .innerText()
-        .catch(() => null);
-      await browser.close();
-      return { site: "jumia", title, price };
-    } catch (err) {
-      return { site: "jumia", error: err.message };
-    }
-  }
+  // async function scrapeJumia() {
+  //   try {
+  //     const browser = await chromium.launch({ headless: true });
+  //     const page = await browser.newPage();
+  //     await page.goto(
+  //       `https://www.jumia.com.eg/catalog/?q=${encodeURIComponent(query)}`,
+  //       { timeout: 60000 }
+  //     );
+  //     await page.waitForSelector("article.prd h3.name", { timeout: 15000 });
+  //     const card = await page.locator("article.prd").first();
+  //     const title = await card
+  //       .locator("h3.name")
+  //       .innerText()
+  //       .catch(() => null);
+  //     const price = await card
+  //       .locator(".prc")
+  //       .innerText()
+  //       .catch(() => null);
+  //     await browser.close();
+  //     return { site: "jumia", title, price };
+  //   } catch (err) {
+  //     return { site: "jumia", error: err.message };
+  //   }
+  // }
 
 
  async function scrapeNoon() {
   const browser = await chromium.launch({
-    headless: false,
+    headless: true,
     slowMo: 50, // فقط أثناء التطوير
     args: [
       "--no-sandbox",
@@ -159,13 +159,12 @@ router.post("/", async (req, res) => {
 }
 
 
-  const [amazon, jumia, noon] = await Promise.all([
-    scrapeAmazon(),
-    scrapeJumia(),
+  const [noon] = await Promise.all([
+
     scrapeNoon(),
   ]);
 
-  results.push(amazon, jumia, noon);
+  results.push( noon);
   return res.status(200).json({ scraped: results });
 });
 
