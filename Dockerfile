@@ -1,26 +1,26 @@
-FROM node:20-slim
+# استخدم صورة Playwright الجاهزة (فيها المتصفحات)
+FROM mcr.microsoft.com/playwright:v1.48.2-jammy
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    unzip \
-    fonts-liberation \
-    libatk-bridge2.0-0 \
-    libnss3 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxrandr2 \
-    libxdamage1 \
-    libgbm1 \
-    libgtk-3-0 \
-    libasound2 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Playwright dependencies
-RUN npx playwright install --with-deps chromium
-
+# تعيين مجلد العمل
 WORKDIR /app
+
+# نسخ ملفات المشروع الأساسية
+COPY package*.json ./
+
+# تثبيت التبعيات
+RUN npm install
+
+# نسخ باقي الملفات
 COPY . .
 
+# ✅ تثبيت Xvfb لمحاكاة واجهة رسومية داخل Docker
+RUN apt-get update && apt-get install -y xvfb
+
+# ✅ تعيين متغير البيئة لمحاكاة الشاشة
+ENV DISPLAY=:99
+
+# ✅ تعيين المنفذ (Railway يستخدمه تلقائيًا)
 EXPOSE 4000
-CMD ["node", "server.js"]
+
+# ✅ تشغيل السيرفر عبر Xvfb لتفعيل الـ headful browser
+CMD ["xvfb-run", "-a", "npm", "start"]

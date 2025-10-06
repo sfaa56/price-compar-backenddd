@@ -75,7 +75,7 @@ router.post("/", async (req, res) => {
 
   async function scrapeNoon() {
     const browser = await chromium.launch({
-      headless: true,
+      headless: false,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
