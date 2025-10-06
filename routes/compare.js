@@ -88,15 +88,41 @@ router.post("/", async (req, res) => {
       ],
     });
 
-    // Use a mobile context configuration
-    const context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
-      viewport: { width: 412, height: 732 },
-      deviceScaleFactor: 2.625,
-    });
+  const context = await browser.newContext({
+    // ... (context config)
+    userAgent:
+      "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.144 Mobile Safari/537.36",
+    viewport: { width: 412, height: 732 },
+    deviceScaleFactor: 2.625,
+  });
 
-    const page = await context.newPage();
+  // 👇 FIX: Use context.addInitScript() instead of evaluateOnNewDocument()
+  await context.addInitScript(() => {
+    // 1. Spoof WebGL/GPU (This is the critical fingerprint fix)
+    Object.defineProperty(navigator.gpu, 'getPreferredCanvasFormat', {
+        value: () => 'rgba8unorm',
+    });
+    
+    // 2. Spoof Canvas API (to defeat pixel-based detection)
+    const originalToDataURL = HTMLCanvasElement.prototype.toDataURL;
+    HTMLCanvasElement.prototype.toDataURL = function (...args) {
+        const ctx = this.getContext('2d');
+        if (ctx) {
+            ctx.fillStyle = '#1a1a1a'; // Draw a single pixel
+            ctx.fillRect(0, 0, 1, 1);
+        }
+        return originalToDataURL.apply(this, args);
+    };
+
+    // 3. Delete the 'webdriver' property (ensuring stealth plugin hasn't missed it)
+    if (Object.getOwnPropertyDescriptor(navigator, "webdriver")) {
+        delete Object.getOwnPropertyDescriptor(navigator, "webdriver");
+    }
+  });
+  // **************************************************************************
+
+ const page = await context.newPage();
+
     const url = `https://www.noon.com/egypt-en/search/?q=${encodeURIComponent(
       query
     )}`;
@@ -105,7 +131,7 @@ router.post("/", async (req, res) => {
       console.log("🟢 Opening:", url);
 
       // Wait for the network to be mostly idle
-      await page.goto(url, { waitUntil: "networkidle" });
+      await page.goto(url, { waitUntil: "domcontentloaded" });
 
       // Introduce human-like delay
       const delay = Math.floor(Math.random() * 3000) + 2000; // 2s to 5s
