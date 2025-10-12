@@ -1,14 +1,24 @@
 import dotenv from "dotenv";
-dotenv.config(); // 👈 أول حاجة تتحط
+dotenv.config();
 
 import express from "express";
+import cors from "cors";
 import compareRoute from "./routes/compare.js";
 
 const app = express();
 
+
+app.use(
+  cors({
+    origin: "*", 
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true,
+  })
+);
+
 app.use(express.json());
 
-// نربط الراوت
+// ✅ نربط الراوت
 app.use("/api/compare", compareRoute);
 
 const PORT = process.env.PORT || 4000;
